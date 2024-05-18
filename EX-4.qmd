@@ -362,13 +362,30 @@ boxplot(c(home_filter$duration/60))
 ```
 
 ### Remove short segments
-I would like to look at movement segments longer than a minute, so I will remove the segments with a duration of less than 1 min. 
+I would like to look at movement segments longer than a minute, so I will remove the segments with a duration of less than 60 seconds. 
 
 ```{r}
 home_filter_cleaned <- home_filter |>  
-  filter(duration <= 1)
+  filter(duration >= 60)
+
+home_filter_cleaned |>
+  group_by(segment_id) |> 
+    ggplot(aes(X, Y)) +
+    geom_path() +
+    geom_point(aes(colour = segment_id)) +
+    coord_fixed() +
+    theme(legend.position = "bottom") +
+ theme(legend.position = "none")
 ```
 
 Commit your changes with a meaningful commit message.
 
+## Task 5: Similarity measures
+We will now calculate similarties between trajectories using a new dataset pedestrian.csv. Download an import this dataset as a data.frame or tibble. It it a set of six different but similar trajectories from pedestrians walking on a path.
 
+### Data Import
+```{r}
+
+```
+
+For this task, explore the trajectories first and get an idea on how the pedestrians moved.
