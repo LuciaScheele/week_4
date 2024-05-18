@@ -279,6 +279,13 @@ summary(home$stepMean)
 home <- home |> 
   mutate(static = stepMean < mean(stepMean, na.rm = TRUE)) 
 
+```
+Commit your changes with a meaningful commit message.
+
+## Task 3: Visualize segmented trajectories
+Now visualize the segmented trajectory spatially. Just like last week, you can use ggplot with geom_path(), geom_point() and coord_equal(). Assign colour = static within aes() to distinguish between segments with “movement” and without.
+
+```{r}
 home_filter <- home |>
     filter(!static)
 
@@ -288,16 +295,80 @@ home_filter |>
     geom_point() +
     coord_fixed() +
     theme(legend.position = "bottom")
-
 ```
-Commit your changes with a meaningful commit message.
 
+## Task 4: Segment-based analysis
+In applying Laube and Purves (2011), we’ve come as far as step b) in Figure 14.1. In order to complete the last steps (c and d), we need a unique ID for each segment that we can use as a grouping variable. The following function does just that (it assigns unique IDs based on the column static which you created in Task 2). You will learn about functions next week. For now, just copy the following code chunk into your script and run it.
 
-sabi_filter |>
-    ggplot(aes(E, N)) +
+### Unique IDs
+```{r}
+rle_id <- function(vec) {
+    x <- rle(vec)$lengths
+    as.factor(rep(seq_along(x), times = x))
+}
+```
+
+You can use the newly created function rle_id to assign unique IDs to subtrajectories (as shown below). 
+
+```{r}
+home <- home |>
+  mutate(segment_id = rle_id(static))
+```
+
+The df of my track now contains a column of IDs that are allocated to segments by differentiating between static (true) and non.static (false) segements. 
+
+### Visualize the moving segments 
+by colourizing them by segment_ID. Then use segment_ID as a grouping variable to determine the segments duration and remove short segments (e.g. segments with a duration < 5 Minutes)
+
+```{r}
+home |>
+    ggplot(aes(X, Y)) +
     geom_path() +
-    geom_point() +
+    geom_point(aes(colour = segment_id)) +
     coord_fixed() +
-    theme(legend.position = "bottom")
+    theme(legend.position = "bottom") +
+ theme(legend.position = "none")
+```
+
+### Segment duration
+
+```{r}
+# Duration of segments 
+difftime_secs_by_element <- function(later, now){
+    as.numeric(difftime(later, now, units = "secs"), by_element = T)
+}
+
+home <- home |> 
+  group_by(segment_id) |> 
+  mutate(duration = difftime_secs_by_element(max(timestamp), min(timestamp)))
+
+# Summary of Segment duration in minutes
+summary(c(home$duration/60))
+boxplot(c(home$duration/60))
+```
+
+It is not clear whay we did this step with static segments included. I thus want to keep working with only dynamic segments. 
+
+#### Try out for only dynamic data
+```{r}
+home_filter <- home |> 
+  filter(static== FALSE) |> 
+  group_by(segment_id) |> 
+  mutate(duration = difftime_secs_by_element(max(timestamp), min(timestamp)))
+
+# Summary of Segment duration in minutes
+summary(c(home_filter$duration/60))
+boxplot(c(home_filter$duration/60))
+```
+
+### Remove short segments
+I would like to look at movement segments longer than a minute, so I will remove the segments with a duration of less than 1 min. 
+
+```{r}
+home_filter_cleaned <- home_filter |>  
+  filter(duration <= 1)
+```
+
+Commit your changes with a meaningful commit message.
 
 
