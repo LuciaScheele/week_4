@@ -203,31 +203,31 @@ home <- home |>
   mutate(timelag = difftime_secs(lead(timestamp), timestamp))
 
 boxplot(home$timelag)
-summary(home$timelag)25
+summary(home$timelag)
 
 home |> 
   ggplot(aes(timestamp, timelag)) + 
   geom_point()
 ```
 
-The largest part of the given timestamps was recorded with an interval of 1-second. There are a few outliers with an interval of up to 331 seconds (i.e. 5.5 min) and they mainly occur in the second half of the recording. The duration of the recording is one hour. At this point, one could try out different temporal window specifications. I will chose a temporal window of half a minute, thus including 30 fixes or 30 seconds (except for outliers). 
+The largest part of the given timestamps was recorded with an interval of 1-second. There are a few outliers with an interval of up to 331 seconds (i.e. 5.5 min) and they mainly occur in the second half of the recording. The duration of the recording is one hour. 
+
+## Step a): Specify a temporal window 
+At this point, one could try out different temporal window specifications. I will choose a temporal window of 10 seconds around a fix and a sample of 4 distances.
 
 We need to calculate the following Euclidean distances (pos representing single location):
   
-- pos[n-30] to pos[n]
-- pos[n-30] to pos[n]
-- pos[n] to pos[n+30]
-- pos[n] to pos[n+30]
+- pos[n-5] to pos[n]
+- pos[n-2] to pos[n]
+- pos[n] to pos[n+2]
+- pos[n] to pos[n+5]
 
 Für die Distanzrechnung nutzt man st_distance mit dem Argument by_element = T.
 Um die Unit Meter los zu werden würden wir diese Zeilen noch mit as.numeric versehen. 
-Einfacher geht es mit einer Funktion:
+Einfacher geht es mit einer Funktion.
 
-## Step a): Specify a temporal window 
-Step b): Measure the distance from every point to every other point within this temporal window 
+## Step b): Measure the distance from every point to every other point within this temporal window 
 We can use the function distance_by_element from week 2 in combination with lead() and lag() to calculate the Euclidean distance. For example, to create the necessary offset of n-2, we use lag(x, 2). For each offset, we create one individual column.
-
-Now we want to calculate the mean distance of nMinus2, nMinus1, nPlus1, nPlus2 for each row. Since we want the mean value per Row, we have to explicitly specify this before mutate() with the function rowwise(). To remove this rowwise-grouping, we end the operation with ungroup().
 
 ```{r}
 library(sf)
@@ -241,15 +241,16 @@ distance_by_element <- function(later, now){
   }
 
 home <- home |> mutate(
-  nMinus30 = distance_by_element(lag(geometry, n=30), geometry), # distance to pos -30 seconds
-  nMinus15 = distance_by_element(lag(geometry, n=15), geometry), # distance to pos -15 seconds
-  nPlus15 = distance_by_element(lead(geometry, n=15), geometry), # distance to pos +15 seconds
-  nPlus30 = distance_by_element(lead(geometry, n=30), geometry)  # distance to pos +30 seconds
+  nMinus5 = distance_by_element(lag(geometry, n=5), geometry), # distance to pos -5 seconds
+  nMinus2 = distance_by_element(lag(geometry, n=2), geometry), # distance to pos -2 seconds
+  nPlus2 = distance_by_element(geometry, lead(geometry, n=2)), # distance to pos +2 seconds
+  nPlus5 = distance_by_element(geometry, lead(geometry, n=5))  # distance to pos +5 seconds
 )
 
-summary(home$nMinus30)
+summary(home$nMinus5)
 ```
 
+Now we want to calculate the mean distance of nMinus5, nMinus2, nPlus2, nPlus5 for each row. Since we want the mean value per Row, we have to explicitly specify this before mutate() with the function rowwise(). To remove this rowwise-grouping, we end the operation with ungroup().
 
 Note that for the first two positions, we cannot calculate a stepMean since there is no Position n-2 for these positions. This is also true for the last to positions (lacking a position n+2).
 
@@ -257,11 +258,11 @@ Note that for the first two positions, we cannot calculate a stepMean since ther
 home <- home |>
     rowwise() |>
     mutate(
-        stepMean = mean(c(nMinus30, nMinus15, nPlus15, nPlus30))
+        stepMean = mean(c(nMinus5, nMinus2, nPlus2, nPlus5))
     ) |>
     ungroup()
 
-home
+home 
 ```
 
 ## Step c): Remove “static points”
