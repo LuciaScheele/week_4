@@ -385,7 +385,55 @@ We will now calculate similarties between trajectories using a new dataset pedes
 
 ### Data Import
 ```{r}
-
+pedestrian <- read_delim("pedestrian.csv", delim = ",") |> 
+  st_as_sf(coords = c("E", "N"), crs = 2056, remove = FALSE)
 ```
 
-For this task, explore the trajectories first and get an idea on how the pedestrians moved.
+### Exploration of Data
+```{r}
+pedestrian |> 
+  ggplot(aes(E,N))+
+  geom_point(aes(colour = TrajID)) +
+  geom_line() +
+  facet_wrap(vars(TrajID))
+```
+
+From this visualisation, we can already see that there are differences in the sampling frequency and spacial extension of the trajectory fixes. 
+
+An interesting observation is in the trajIDs 4 and 5, where strongly diverging. In the case of 5, it could be a geometric outlier problem. In the case of 4, there appears to be some timestamp issue. 
+
+For further comparisons, it would be important to know more about the temporal scales of the trajectories, i.e. duration, timelag, and length. 
+
+```{r}
+# length/ amount of fixes per trajectories 
+count <- pedestrian |> 
+  group_by(TrajID) |> 
+  summarise(count= n())
+
+duration <- pedestrian |> 
+  group_by(TrajID) |> 
+  summarise(duration = max(DatetimeUTC) - min(DatetimeUTC))
+
+# sampling frequency (timelag)
+pedestrian <- pedestrian |> 
+  mutate(timelag = difftime_secs(lead(DatetimeUTC), DatetimeUTC))
+
+boxplot(pedestrian$timelag)
+summary(pedestrian$timelag)
+
+pedestrian |> 
+  filter(timelag > c(-2000)) |> 
+  ggplot(aes(DatetimeUTC, timelag)) + 
+  geom_point() +
+  facet_wrap(vars(TrajID))
+
+# Duration
+pedestrian |> group_by(TrajID) |> 
+  summarize(duration = difftime_secs(max(DatetimeUTC, na.rm = T), min(DatetimeUTC, na.rm = T)))
+
+difftime(max(home$timestamp, na.rm = T), min(home$timestamp, na.rm = T))
+```
+
+Die gegebenen Trajectories haben eine Sampling frequency von 60 Sekunden, wobei die Anzahl der Aufgenommenen Fixes (von 45 bis 51 Fixes/Trajectory) und die Dauer der Aufnahme (von 2700 bis 3060) variieieren.
+
+
