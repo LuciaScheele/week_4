@@ -1,191 +1,56 @@
 ---
-title: "Similraity"
+title: "Similarity"
 format: html
 ---
 
 ```{r}
 library("readr")
+library(tmap)
 library("dplyr")
 library("sf")
-```
-
-```{r}
-wildschwein <- read_delim("wildschwein_BE_2056.csv", ",")
-```
-
-```{r}
-# Careful! What Timezone is assumed?
-sabi <- wildschwein |>
-    st_as_sf(coords = c("E", "N"), crs = 2056, remove = FALSE) |>
-    filter(TierName == "Sabi", DatetimeUTC >= "2015-07-01", DatetimeUTC < "2015-07-03")
-```
-
-GGPLOT
-```{r}
-library(ggplot2)
-
-ggplot(sabi, aes(E,N, color = DatetimeUTC))+
-  geom_point()+
-  geom_path()+
-  coord_fixed() +
-  scale_color_datetime(low = "blue", high = "red")+
-  guides(color = guide_colorbar(title.position = "top", title.hjust= .5, barwidth= unit(2)))
-```
-
-# Distance measure for window v and segmentation
-```{r}
-distance_by_element <- function(later, now) {
-  as.numeric(
-    st_distance(later, now, by_element = TRUE)
-  )
-}
-
-sabi <- sabi |>
-    mutate(
-        nMinus2 = distance_by_element(lag(geometry, 2), geometry),  # distance to pos -30 minutes
-        nMinus1 = distance_by_element(lag(geometry, 1), geometry),  # distance to pos -15 minutes
-        nPlus1  = distance_by_element(geometry, lead(geometry, 1)), # distance to pos +15 mintues
-        nPlus2  = distance_by_element(geometry, lead(geometry, 2))  # distance to pos +30 minutes
-    )
-
-sabi <- sabi |>
-    rowwise() |>
-    mutate(
-        stepMean = mean(c(nMinus2, nMinus1, nPlus1, nPlus2))
-    ) |>
-    ungroup()
-
-sabi
-```
-
-# Remove static points
-```{r}
-sabi <- sabi |>
-    mutate(static = stepMean < mean(stepMean, na.rm = TRUE))
-
-sabi_filter <- sabi |>
-    filter(!static)
-
-sabi_filter |>
-    ggplot(aes(E, N)) +
-    geom_path() +
-    geom_point() +
-    coord_fixed() +
-    theme(legend.position = "bottom")
-```
-
-# Load my own data
-
-```{r}
-install.packages("XML")
-library(XML)
-
-gpx_to_df <- function(gpx_path) {
-  
-  gpx_parsed <- htmlTreeParse(file = gpx_path, useInternalNodes = TRUE)
-  
-  # read out elements of the html file to vecotrs
-coords <- xpathSApply(doc = gpx_parsed, path = "//trkpt", fun = xmlAttrs)
-elevation <- xpathSApply(doc = gpx_parsed, path = "//trkpt/ele", fun = xmlValue)
-time <- xpathSApply(doc = gpx_parsed, path = "//time", fun = xmlValue)
-activity_name <- xpathSApply(doc = gpx_parsed, path = "//name", fun = xmlValue)
-
-
-# remove first value of time, as it stems from the metadata and matches the second value (i.e. first timestamp of trackpoint)
-time <- time[-1]
-
-# convert vectors to a data frame
-df <- data.frame(
-  lat = as.numeric(coords["lat", ]),
-  lon = as.numeric(coords["lon", ]),
-  elevation = as.numeric(elevation), 
-  timestamp = as.POSIXct(time,tz="UTC", format=c("%Y-%m-%dT%H:%M:%OS")),
-  ActivityName = activity_name 
-) 
-
-dfname <- print(substring(gpx_path, 12, 34))
-
-assign(dfname, df, envir = .GlobalEnv)
-}
-```
-
-Apply function to all gpx-files from strava-folder: 
-```{r}
-# Get a list of files in the folder
-folder_path <- "activities/"
-file_list <- list.files(folder_path, full.names = TRUE)
-
-# Iterate over each file and apply your function
-for (file_path in file_list) {
-  gpx_to_df(file_path)
-}
-```
-
-# Combine single track-files to one Dataframe
-Here I stitch the single dataframes containing the tracks' information together 
-```{r}
-#create a list of the df names
-dflist <- substring(file_list,12,34)
-
-all_tracks <- do.call(rbind, lapply(dflist, get))
-```
-
-The metadata from the 'activity' dataframe is not of any additional use. It is thus not stitched to the track data. 
-
-# Converting the df to sf object
-I convert the given dataframe to an sf-object for better handling of the spatial data and for being able to do metric calculations (ex. for distance). For this, the function needs an argument specifiying the columns that hold the spatial data, as well as the information as to which crs is being used. Here it is the lat/long crs, which is EPSG:4326 or WGS 84. 
-Here it is important to specify first the longitude and then the latitude, as it is the standard convention. 
-
-```{r}
-library(sf)
-all_tracks <- st_as_sf(all_tracks, coords = c("lon", "lat"), crs = 4326)
-str(all_tracks)
-```
-
-## Transforming the crs 
-We would like the CRS to be in the format of CH1903 +LV95 or EPSG:2056
-```{r}
-all_tracks <- st_transform(all_tracks, 2056)
-str(all_tracks)
-
-
-# Check Timezone
-attr(all_tracks$timestamp, "tzone")
-```
-
-## Filtering out old data
-```{r}
 library(dplyr)
 library(lubridate)
-all_tracks <- all_tracks |> 
-  mutate("year" = year(timestamp)) |> 
-  filter(year == 2024)
-```
+library(SimilarityMeasures)
 
-# Making a map of the data
-```{r}
-library(tmap)
-
-tmap_mode("view")
-
-  tm_shape(all_tracks)+
-  tm_dots(col = "ActivityName") 
 ```
 
 # ex 4
 
-## Adding coordinates 
-```{r}
-st_coordinates(all_tracks)
+## Import Data
 
-tracks <- cbind(all_tracks,st_coordinates(all_tracks))
+```{r}
+tracks <- read_delim("all_tracks_Lucia.csv", delim = ",") 
+
+tracks <- tracks |> 
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) 
+st_crs(tracks) <- 4326
+
+st_crs(tracks)
+  
+st_transform(tracks, crs = 2056) # Transforming the crs to CH1903+95
+
+# adding coordinates
+tracks <- cbind(tracks,st_coordinates(tracks))
 ```
 
-## Filtern 
+### Checking Data
+```{r}
+str(tracks) # check structure
+attr(all_tracks$timestamp, "tzone") # Check Timezone
+
+# Making a map of the data
+tmap_mode("view")
+
+  tm_shape(tracks)+
+  tm_dots(col = "ActivityName") 
+```
+
+### Filtern 
 ```{r}
 home <- tracks |> filter(ActivityName == "Home")
 ```
 
+#Task 1: 
 ## Dataexploration of example track
 
 ```{r}
@@ -230,8 +95,6 @@ Einfacher geht es mit einer Funktion.
 We can use the function distance_by_element from week 2 in combination with lead() and lag() to calculate the Euclidean distance. For example, to create the necessary offset of n-2, we use lag(x, 2). For each offset, we create one individual column.
 
 ```{r}
-library(sf)
-
 # We need to calculate the following Euclidean distances (pos representing single location):
 # Distance btw. PointsFuntion
 distance_by_element <- function(later, now){
@@ -282,7 +145,7 @@ home <- home |>
 ```
 Commit your changes with a meaningful commit message.
 
-## Task 3: Visualize segmented trajectories
+# Task 3: Visualize segmented trajectories
 Now visualize the segmented trajectory spatially. Just like last week, you can use ggplot with geom_path(), geom_point() and coord_equal(). Assign colour = static within aes() to distinguish between segments with “movement” and without.
 
 ```{r}
@@ -297,7 +160,7 @@ home_filter |>
     theme(legend.position = "bottom")
 ```
 
-## Task 4: Segment-based analysis
+# Task 4: Segment-based analysis
 In applying Laube and Purves (2011), we’ve come as far as step b) in Figure 14.1. In order to complete the last steps (c and d), we need a unique ID for each segment that we can use as a grouping variable. The following function does just that (it assigns unique IDs based on the column static which you created in Task 2). You will learn about functions next week. For now, just copy the following code chunk into your script and run it.
 
 ### Unique IDs
@@ -305,7 +168,7 @@ In applying Laube and Purves (2011), we’ve come as far as step b) in Figure 14
 rle_id <- function(vec) {
     x <- rle(vec)$lengths
     as.factor(rep(seq_along(x), times = x))
-}
+} 
 ```
 
 You can use the newly created function rle_id to assign unique IDs to subtrajectories (as shown below). 
@@ -380,7 +243,7 @@ home_filter_cleaned |>
 
 Commit your changes with a meaningful commit message.
 
-## Task 5: Similarity measures
+# Task 5: Similarity measures
 We will now calculate similarties between trajectories using a new dataset pedestrian.csv. Download an import this dataset as a data.frame or tibble. It it a set of six different but similar trajectories from pedestrians walking on a path.
 
 ### Data Import
@@ -398,11 +261,11 @@ pedestrian |>
   facet_wrap(vars(TrajID))
 ```
 
-From this visualisation, we can already see that there are differences in the sampling frequency and spacial extension of the trajectory fixes. 
+From this vizualisation, we can already see that there are differences in the sampling frequency and spacial extension of the trajectory fixes. 
 
-An interesting observation is in the trajIDs 4 and 5, where strongly diverging. In the case of 5, it could be a geometric outlier problem. In the case of 4, there appears to be some timestamp issue. 
+An interesting observation is in the trajIDs 4 and 5, where several or single fixes are out of the spatial pattern. It appears to be an irregularity along the N-Values.  
 
-For further comparisons, it would be important to know more about the temporal scales of the trajectories, i.e. duration, timelag, and length. 
+For further comparisons, it would be important to know more about the temporal scales of the trajectories, i.e.their duration, timelag, and length. 
 
 ```{r}
 # length/ amount of fixes per trajectories 
@@ -436,4 +299,108 @@ difftime(max(home$timestamp, na.rm = T), min(home$timestamp, na.rm = T))
 
 Die gegebenen Trajectories haben eine Sampling frequency von 60 Sekunden, wobei die Anzahl der Aufgenommenen Fixes (von 45 bis 51 Fixes/Trajectory) und die Dauer der Aufnahme (von 2700 bis 3060) variieieren.
 
+# Task 6: 
+Install the package SimilarityMeasures (install.packages("SimilarityMeasures")). Familiarize yourself with this package by skimming through the function descriptions help(package = "SimilarityMeasures"). 
 
+```{r}
+install.packages("SimilarityMeasures")
+help(package = "SimilarityMeasures")
+```
+
+Now compare trajectory 1 to trajectories 2-6 using different similarity measures from the package. Your options are. DTW, EditDist, Frechet and LCSS.
+
+*All functions in the package need matrices as input, with one trajectory per matrix.*
+
+## Splitting trajectories to matrices
+
+```{r}
+ID1 <- pedestrian |> 
+  filter(TrajID == 1) |>
+  st_drop_geometry() |> 
+  subset(select = c(E,N)) |> 
+  as.matrix()
+
+ID2 <- pedestrian |> 
+  filter(TrajID == 2) |> 
+  st_drop_geometry() |> 
+  subset(select = c(E,N)) |> 
+  as.matrix()
+
+ID3 <- pedestrian |> 
+  filter(TrajID == 3)|> 
+    st_drop_geometry() |> 
+  subset(select = c(E,N)) |> 
+  as.matrix()
+
+ID4 <- pedestrian |> 
+  filter(TrajID == 4)|> 
+  st_drop_geometry() |> 
+  subset(select = c(E,N)) |> 
+  as.matrix()
+
+ID5 <- pedestrian |> 
+  filter(TrajID == 5)|>
+   st_drop_geometry() |> 
+  subset(select = c(E,N)) |> 
+  as.matrix()
+
+ID6 <- pedestrian |> 
+  filter(TrajID == 6)|> 
+    st_drop_geometry() |> 
+  subset(select = c(E,N)) |> 
+  as.matrix()
+
+str(ID1)
+```
+
+## Similarity measures
+```{r}
+# DTW
+results_DTW <- c(DTW(ID1, ID2), 
+                 DTW(ID1, ID3), 
+                 DTW(ID1, ID4), 
+                 DTW(ID1, ID5), DTW(ID1, ID6))
+
+# EditDist
+results_EditDist <- c(EditDist(ID1, ID2), 
+                 EditDist(ID1, ID3), 
+                 EditDist(ID1, ID4), 
+                 EditDist(ID1, ID5), EditDist(ID1, ID6))
+
+# Frechet 
+results_Frechet <- c(Frechet(ID1, ID2), 
+                 Frechet(ID1, ID3), 
+                 Frechet(ID1, ID4), 
+                 Frechet(ID1, ID5), Frechet(ID1, ID6))
+
+# LCSS
+  results_LCSS <- c(
+    LCSS(ID1, ID2, pointSpacing = -50, 
+         pointDistance = 200, errorMarg = 20), 
+    LCSS(ID1, ID3, pointSpacing = -50, 
+         pointDistance = 200, errorMarg = 20),
+    LCSS(ID1, ID4, pointSpacing = -50, 
+         pointDistance = 200, errorMarg = 20),
+    LCSS(ID1, ID5, pointSpacing = -50, 
+         pointDistance = 200, errorMarg = 20), 
+    LCSS(ID1, ID6, pointSpacing = -50, 
+         pointDistance = 200, errorMarg = 20))
+  
+```
+
+
+## Visualization
+Before visualizing your results think about the following: Which two trajectories to you percieve to be most similar, which are most dissimilar? Now visualize the results from the computed similarity measures. Which measure reflects your own intuition the closest?
+
+```{r}
+barplot(results_DTW, col = c("blue", "red", "green", "yellow", "orange"))
+
+barplot(results_EditDist, col = c("blue", "red", "green", "yellow", "orange"), title("Edit_Distance"))
+
+barplot(results_Frechet, col = c("blue", "red", "green", "yellow", "orange"), title("Frechet"))
+
+barplot(results_LCSS, col = c("blue", "red", "green", "yellow", "orange"), title("LCSS"))
+
+```
+
+Habe gerade keine Zeit mehr mich näher mit den Plots zu beschäftigen. Idelerweise hätte ich die Ergebnisse direkt in einem DF und könnte diese entsprechend mit einem ggplot darstellen... 
